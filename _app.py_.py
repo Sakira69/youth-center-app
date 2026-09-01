@@ -32,11 +32,11 @@ FACILITIES = {
 
 # ---------- บัญชีผู้ใช้ ----------
 USERS = {
-    "badminton": {"password": "bad12345", "role": "facility", "facility": "แบดมินตัน", "name": "ผู้ดูแลแบดมินตัน"},
-    "football":  {"password": "foot12345", "role": "facility", "facility": "สนามฟุตบอลใหญ่", "name": "ผู้ดูแลสนามฟุตบอล"},
-    "pool":      {"password": "pool12345", "role": "facility", "facility": "สระว่ายน้ำ", "name": "ผู้ดูแลสระว่ายน้ำ"},
-    "squash":    {"password": "squ12345", "role": "facility", "facility": "สควอช", "name": "ผู้ดูแลสควอช"},
-    "admin":     {"password": "admin54321", "role": "admin", "facility": None, "name": "ผู้บริหาร"},
+    "badminton": {"password": "bad2570", "role": "facility", "facility": "แบดมินตัน", "name": "ผู้ดูแลแบดมินตัน"},
+    "football":  {"password": "foot2570", "role": "facility", "facility": "สนามฟุตบอลใหญ่", "name": "ผู้ดูแลสนามฟุตบอล"},
+    "pool":      {"password": "pool2570", "role": "facility", "facility": "สระว่ายน้ำ", "name": "ผู้ดูแลสระว่ายน้ำ"},
+    "squash":    {"password": "squ2570", "role": "facility", "facility": "สควอช", "name": "ผู้ดูแลสควอช"},
+    "admin":     {"password": "admin2570", "role": "admin", "facility": None, "name": "ผู้บริหาร"},
 }
 
 # ---------------- Google Sheets ----------------
