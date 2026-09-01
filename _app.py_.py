@@ -183,11 +183,11 @@ female = cols[2].number_input(
 )
 cols[3].metric("รวม", male + female)
 
-    if st.button("💾 บันทึกข้อมูล", type="primary", use_container_width=True):
+if st.button("💾 บันทึกข้อมูล", type="primary", use_container_width=True):
         subs_data = []
         for sub in subs:
-            male = st.session_state.get(f"m_{facility}_{sub}", 0)
-            female = st.session_state.get(f"f_{facility}_{sub}", 0)
+            male = st.session_state.get(f"m_{facility}_{sub}_{record_date_str}", 0)
+            female = st.session_state.get(f"f_{facility}_{sub}_{record_date_str}", 0)
             subs_data.append((sub, male, female))
         save_facility_data(record_date_str, facility, subs_data, current_user["name"])
         st.success(f"บันทึกข้อมูล {facility} วันที่ {selected_date.strftime('%d/%m/%Y')} เรียบร้อยแล้ว ✅")
