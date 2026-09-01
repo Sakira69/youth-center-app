@@ -193,7 +193,7 @@ if st.button("💾 บันทึกข้อมูล", type="primary", use_co
         st.success(f"บันทึกข้อมูล {facility} วันที่ {selected_date.strftime('%d/%m/%Y')} เรียบร้อยแล้ว ✅")
 
 # ---------- โหมดผู้บริหาร ----------
-if role == "admin":
+elif current_user["role"] == "admin":
     tab1, tab2 = st.tabs(["📊 แดชบอร์ดผู้บริหาร", "📤 สร้างข้อความรายงาน"])
 
     with tab1:
