@@ -1,9 +1,14 @@
 import streamlit as st
-import sqlite3
+import gspread
+from google.oauth2.service_account import Credentials
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 
-DB_PATH = "youth_center.db"
+SHEET_NAME = "youth_center_data"
+WORKSHEET_NAME = "records"
+HEADER = ["record_date", "facility", "sub_category",
+          "male_count", "female_count", "total_count",
+          "updated_by", "updated_at"]
 
 FACILITIES = {
     "แบดมินตัน": [None],
@@ -25,64 +30,93 @@ FACILITIES = {
     "สควอช": [None],
 }
 
-# ---------- บัญชีผู้ใช้ (แก้รหัสผ่านตรงนี้ได้เลย) ----------
+# ---------- บัญชีผู้ใช้ ----------
 USERS = {
-    "badminton": {"password": "bad2569", "role": "facility", "facility": "แบดมินตัน", "name": "ผู้ดูแลแบดมินตัน"},
-    "football":  {"password": "foot2569", "role": "facility", "facility": "สนามฟุตบอลใหญ่", "name": "ผู้ดูแลสนามฟุตบอล"},
-    "pool":      {"password": "pool2569", "role": "facility", "facility": "สระว่ายน้ำ", "name": "ผู้ดูแลสระว่ายน้ำ"},
-    "squash":    {"password": "squash2569", "role": "facility", "facility": "สควอช", "name": "ผู้ดูแลสควอช"},
-    "admin":     {"password": "admin2569", "role": "admin", "facility": None, "name": "ผู้บริหาร"},
+    "badminton": {"password": "*******", "role": "facility", "facility": "แบดมินตัน", "name": "ผู้ดูแลแบดมินตัน"},
+    "football":  {"password": "********", "role": "facility", "facility": "สนามฟุตบอลใหญ่", "name": "ผู้ดูแลสนามฟุตบอล"},
+    "pool":      {"password": "********", "role": "facility", "facility": "สระว่ายน้ำ", "name": "ผู้ดูแลสระว่ายน้ำ"},
+    "squash":    {"password": "**********", "role": "facility", "facility": "สควอช", "name": "ผู้ดูแลสควอช"},
+    "admin":     {"password": "*********", "role": "admin", "facility": None, "name": "ผู้บริหาร"},
 }
 
-# ---------------- Database ----------------
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            record_date TEXT NOT NULL,
-            facility TEXT NOT NULL,
-            sub_category TEXT,
-            male_count INTEGER DEFAULT 0,
-            female_count INTEGER DEFAULT 0,
-            total_count INTEGER DEFAULT 0,
-            updated_by TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(record_date, facility, sub_category)
-        )
-    """)
-    conn.commit()
-    return conn
+# ---------------- Google Sheets ----------------
+@st.cache_resource
+def get_sheet():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"], scopes=scopes
+    )
+    client = gspread.authorize(creds)
+    sh = client.open(SHEET_NAME)
+    try:
+        ws = sh.worksheet(WORKSHEET_NAME)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=WORKSHEET_NAME, rows=2000, cols=len(HEADER))
+        ws.append_row(HEADER)
+    return ws
 
-def save_record(conn, record_date, facility, sub_category, male, female, user):
-    total = male + female
-    conn.execute("""
-        INSERT INTO records (record_date, facility, sub_category, male_count, female_count, total_count, updated_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(record_date, facility, sub_category)
-        DO UPDATE SET male_count=excluded.male_count,
-                      female_count=excluded.female_count,
-                      total_count=excluded.total_count,
-                      updated_by=excluded.updated_by,
-                      updated_at=CURRENT_TIMESTAMP
-    """, (record_date, facility, sub_category, male, female, total, user))
-    conn.commit()
+@st.cache_data(ttl=15, show_spinner=False)
+def load_all():
+    ws = get_sheet()
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
+    if df.empty:
+        df = pd.DataFrame(columns=HEADER)
+    else:
+        df["male_count"] = pd.to_numeric(df["male_count"], errors="coerce").fillna(0).astype(int)
+        df["female_count"] = pd.to_numeric(df["female_count"], errors="coerce").fillna(0).astype(int)
+        df["total_count"] = pd.to_numeric(df["total_count"], errors="coerce").fillna(0).astype(int)
+        df["record_date"] = df["record_date"].astype(str)
+        df["sub_category"] = df["sub_category"].fillna("").astype(str)
+    return df
 
-def load_day(conn, record_date, facility=None):
+def save_facility_data(record_date, facility, subs_data, user):
+    """subs_data: list of (sub_category, male, female)"""
+    ws = get_sheet()
+    all_values = ws.get_all_values()
+    existing_rows = all_values[1:] if len(all_values) > 1 else []
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    updates, appends = [], []
+    for sub, male, female in subs_data:
+        sub_val = sub or ""
+        total = male + female
+        new_row = [record_date, facility, sub_val, male, female, total, user, now_str]
+        found_idx = None
+        for i, row in enumerate(existing_rows, start=2):
+            if len(row) >= 3 and row[0] == record_date and row[1] == facility and row[2] == sub_val:
+                found_idx = i
+                break
+        if found_idx:
+            updates.append((found_idx, new_row))
+        else:
+            appends.append(new_row)
+
+    if updates:
+        ws.batch_update([{"range": f"A{i}:H{i}", "values": [row]} for i, row in updates])
+    if appends:
+        ws.append_rows(appends)
+
+    load_all.clear()  # เคลียร์ cache หลังบันทึก
+
+def load_day(record_date, facility=None):
+    df = load_all()
+    if df.empty:
+        return df
+    df = df[df["record_date"] == record_date]
     if facility:
-        return pd.read_sql_query(
-            "SELECT * FROM records WHERE record_date = ? AND facility = ?",
-            conn, params=(record_date, facility)
-        )
-    return pd.read_sql_query(
-        "SELECT * FROM records WHERE record_date = ?", conn, params=(record_date,)
-    )
+        df = df[df["facility"] == facility]
+    return df
 
-def load_range(conn, start_date, end_date):
-    return pd.read_sql_query(
-        "SELECT * FROM records WHERE record_date BETWEEN ? AND ? ORDER BY record_date",
-        conn, params=(start_date, end_date)
-    )
+def load_range(start_date, end_date):
+    df = load_all()
+    if df.empty:
+        return df
+    df = df[(df["record_date"] >= start_date) & (df["record_date"] <= end_date)]
+    return df.sort_values("record_date")
 
 # ---------------- Login ----------------
 def login_screen():
@@ -105,7 +139,6 @@ if "user" not in st.session_state:
     login_screen()
     st.stop()
 
-conn = get_conn()
 current_user = USERS[st.session_state["user"]]
 
 with st.sidebar:
@@ -117,7 +150,7 @@ with st.sidebar:
 st.title("📋 ระบบบันทึกยอดผู้ใช้บริการรายวัน")
 st.caption("ศูนย์เยาวชนกรุงเทพมหานคร (ไทย-ญี่ปุ่น)")
 
-# ---------- โหมดผู้ดูแลสนาม: เห็นเฉพาะฟอร์มของตัวเอง ----------
+# ---------- โหมดผู้ดูแลสนาม ----------
 if current_user["role"] == "facility":
     facility = current_user["facility"]
     subs = FACILITIES[facility]
@@ -127,14 +160,13 @@ if current_user["role"] == "facility":
 
     st.subheader(f"📝 บันทึกข้อมูล: {facility}")
 
-    # โหลดค่าที่เคยบันทึกไว้ของวันนี้มาแสดง (ถ้ามี)
-    existing = load_day(conn, record_date_str, facility)
+    existing = load_day(record_date_str, facility)
 
     for sub in subs:
         label = sub if sub else facility
         prev_m, prev_f = 0, 0
         if not existing.empty:
-            row = existing[existing["sub_category"].fillna("") == (sub or "")]
+            row = existing[existing["sub_category"] == (sub or "")]
             if not row.empty:
                 prev_m = int(row.iloc[0]["male_count"])
                 prev_f = int(row.iloc[0]["female_count"])
@@ -146,13 +178,15 @@ if current_user["role"] == "facility":
         cols[3].metric("รวม", male + female)
 
     if st.button("💾 บันทึกข้อมูล", type="primary", use_container_width=True):
+        subs_data = []
         for sub in subs:
             male = st.session_state.get(f"m_{facility}_{sub}", 0)
             female = st.session_state.get(f"f_{facility}_{sub}", 0)
-            save_record(conn, record_date_str, facility, sub, male, female, current_user["name"])
+            subs_data.append((sub, male, female))
+        save_facility_data(record_date_str, facility, subs_data, current_user["name"])
         st.success(f"บันทึกข้อมูล {facility} วันที่ {selected_date.strftime('%d/%m/%Y')} เรียบร้อยแล้ว ✅")
 
-# ---------- โหมดผู้บริหาร: เห็นแดชบอร์ดรวมทุกสนาม ----------
+# ---------- โหมดผู้บริหาร ----------
 else:
     tab1, tab2 = st.tabs(["📊 แดชบอร์ดผู้บริหาร", "📤 สร้างข้อความรายงาน"])
 
@@ -161,7 +195,7 @@ else:
         view_date = col1.date_input("เลือกวันที่ดูข้อมูล", value=date.today())
         view_date_str = view_date.strftime("%Y-%m-%d")
 
-        df_day = load_day(conn, view_date_str)
+        df_day = load_day(view_date_str)
         if df_day.empty:
             st.info("ยังไม่มีข้อมูลบันทึกในวันนี้")
         else:
@@ -183,7 +217,7 @@ else:
         c1, c2 = st.columns(2)
         start = c1.date_input("จากวันที่", value=date.today())
         end = c2.date_input("ถึงวันที่", value=date.today())
-        df_range = load_range(conn, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+        df_range = load_range(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
         if not df_range.empty:
             trend = df_range.groupby("record_date")["total_count"].sum().reset_index()
             st.line_chart(trend.set_index("record_date"))
@@ -194,10 +228,10 @@ else:
         st.subheader("สร้างข้อความรายงานสำหรับส่งไลน์")
         rep_date = st.date_input("เลือกวันที่", value=date.today(), key="rep_date")
         rep_date_str = rep_date.strftime("%Y-%m-%d")
-        df_rep = load_day(conn, rep_date_str)
+        df_rep = load_day(rep_date_str)
 
         def get_val(facility, sub=None):
-            row = df_rep[(df_rep["facility"] == facility) & (df_rep["sub_category"].fillna("") == (sub or ""))]
+            row = df_rep[(df_rep["facility"] == facility) & (df_rep["sub_category"] == (sub or ""))]
             if row.empty:
                 return 0, 0, 0
             r = row.iloc[0]
