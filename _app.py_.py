@@ -173,9 +173,15 @@ if current_user["role"] == "facility":
 
         cols = st.columns([3, 1, 1, 1])
         cols[0].write(f"**{label}**")
-        male = cols[1].number_input("ชาย", min_value=0, step=1, value=prev_m, key=f"m_{facility}_{sub}")
-        female = cols[2].number_input("หญิง", min_value=0, step=1, value=prev_f, key=f"f_{facility}_{sub}")
-        cols[3].metric("รวม", male + female)
+        male = cols[1].number_input(
+    "ชาย", min_value=0, step=1, value=prev_m,
+    key=f"m_{facility}_{sub}_{record_date_str}"
+)
+female = cols[2].number_input(
+    "หญิง", min_value=0, step=1, value=prev_f,
+    key=f"f_{facility}_{sub}_{record_date_str}"
+)
+cols[3].metric("รวม", male + female)
 
     if st.button("💾 บันทึกข้อมูล", type="primary", use_container_width=True):
         subs_data = []
